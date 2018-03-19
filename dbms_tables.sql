@@ -1,9 +1,9 @@
 create table custInfo
 (
-	mail_id varchar(30) not null ,
+	mail_id varchar(40) not null ,
 	password varchar(30) not null ,
 	name varchar(40) not null,
-	phone_no int(13) ,
+	phone_no bigint not null,
 	default_addr varchar(40) ,
 	login_count int ,
 	primary key(mail_id)
@@ -15,7 +15,7 @@ create table distanceInfo
 (
 	location1 varchar(40),
 	location2 varchar(40),
-	distance float(5,2)	not null,
+	distance decimal(5,2)	not null,
 
 	primary key(location1,location2)
 );
@@ -24,6 +24,7 @@ create table distanceInfo
 create table taxiBooking
 (
 	booking_id int unsigned not null auto_increment,
+	user_id varchar(40) not null,
 	pickup_time timestamp not null,
 	pickup_addr varchar(40) not null,
 	dest_addr varchar(40) not null,
@@ -33,6 +34,7 @@ create table taxiBooking
 	price decimal(8,2) ,
 
 	check(timestampdiff(hour,current_timestamp,pickup_time) > 1),
+	foreign key(user_id) references custInfo(mail_id),
 	foreign key(pickup_addr,dest_addr) references distanceInfo(location1,location2),
 	primary key(booking_id)
 );
@@ -43,6 +45,7 @@ create table carInfo
 	car_type varchar(40) default 'taxi' ,
 	car_name varchar(40),
 	brand varchar(40),
+	no_of_persons int not null,
 	car_condition  varchar(40)  default 'working',
 	cost int default 1000000,
 	charge_perkm decimal(5,2) default 15.00 ,
@@ -52,28 +55,17 @@ create table carInfo
 	primary key(car_id)
 );
 
-
 create table driverInfo
 (
 	driver_id varchar(40),
 	drive_name varchar(40),
-	phone_no int not null ,
+	phone_no bigint not null ,
 	driving_since int default 2,
 	salary int default 5000 ,
 
 	primary key(driver_id) 
 );
 
-
-create table bookingInfo
-(
-	user_id varchar(30) not null,
-	booking_id int unsigned not null,
-
-	foreign key(user_id) references custInfo(mail_id),
-	foreign key(booking_id) references taxiBooking(booking_id),
-	primary key(user_id,booking_id)
-);
 
 create table booked_for
 (
@@ -134,7 +126,7 @@ returns varchar(40)
 	declare busy_count integer ;
 
 	select count(*) into busy_count from taxiBooking , booked_for 
-	where taxiBooking.booking_id = booked_for.booking_id and booked_for.car_id = carInfo.car_id and  
+	where taxiBooking.booking_id = booked_for.booking_id and booked_for.car_id = car_id and  
 	abs(timestampdiff(hour,taxiBooking.pickup_time,pickup_time)) <2 ;
 
 	if busy_count = 0 then set answer1 = 'available';
@@ -149,82 +141,95 @@ delimiter ;
 
 
 delimiter //
-create function assignTaxi(bookingId int)
-	returns float(8,2)
+create function getCost(pickup_addr varchar(40) , dest_addr varchar(40) , car_name varchar(40))
+	returns decimal(8,2)
 
 	begin
 
-	declare price float(5,2);
-	declare dist  integer  ;
-	declare pickTime timestamp ;
-	declare pickup ,dest , carId,carName varchar(40) ;
+	declare cost1 decimal(5,2) ;
+	declare dist integer;
 
-	select taxiBooking.pickup_addr into pickup 
-	from taxiBooking where taxiBooking.booking_id = bookingId ;
+	select carInfo.charge_perkm into cost1 from carInfo where carInfo.car_name = car_name limit 1 ;
+	select distanceInfo.distance into dist  from distanceInfo where distanceInfo.location1=pickup_addr and distanceInfo.location2=dest_addr ;
 
-	select taxiBooking.dest_addr into dest 
-	from taxiBooking where taxiBooking.booking_id = bookingId ;
+	return cast((cost1*dist*1.0)  as  decimal(8,2) );
 
-	select taxiBooking.car_name into carName
-	from taxiBooking where taxiBooking.booking_id = bookingId ;
-
-	select taxiBooking.pickup_time into pickTime
-	from taxiBooking where taxiBooking.booking_id = bookingId ;
-
-
-	select carInfo.car_id into carId from carInfo 
-	where strcmp(car_type,"taxi")=0 and carInfo.car_name = carName  and  
-	strcmp(getAvailability(pickTime , carInfo.car_id ) , "available")=0  limit 1 ;
-
-	select carInfo.charge_perkm into price from carInfo
-	where carInfo.car_id = carId;
-
-
-	insert into booked_for (booking_id , car_id ) values (bookingId , carId) ;
-
-
-	select distanceInfo.distance into dist from distanceInfo where distanceInfo.location1 = dest and distanceInfo.location2 = pickup ;
-
-	return distance*price ;
-
-end	//
+end //
 delimiter ;
 
 
-
+delimiter //
+create trigger costAssign
+before insert on taxiBooking
+for each row
+begin
+	SET NEW.price = getCost(NEW.pickup_addr,NEW.dest_addr,NEW.car_name);
+end //
+delimiter ;
 
 delimiter //
-create trigger finalAssignTaxi 
+create trigger taxiAssign
 after insert on taxiBooking 
 for each row 
 begin
-	update taxiBooking set taxiBooking.price = assignTaxi(taxiBooking.booking_id);
-end //
+	declare cost decimal(5,2);
+	declare dist  integer  ;
+	declare pickTime timestamp ;
+	declare pickup ,dest , carId varchar(40) ;
+
+	select carInfo.car_id into carId from carInfo 
+	where strcmp(carInfo.car_type,"taxi")=0 and carInfo.car_name = NEW.car_name  and  
+	strcmp(getAvailability(NEW.pickup_time , carInfo.car_id ) , "available")=0  limit 1 ;
+
+	insert into booked_for (booked_for.booking_id ,booked_for.car_id ) values (NEW.booking_id , carId) ;
+
+ end //
 delimiter ;
 
 
 
-delimiter //
-create function getCost(pickup_addr varchar(40) , dest_addr varchar(40) , car_name varchar(40))
-	returns float(7,2)
+insert into carInfo ( car_id ,car_name , car_type , brand , no_of_persons, car_condition , cost , charge_perkm , rcharge_perday ,availability ) values 
+ ('AP11S1001','Maruti Swift','taxi','Maruti Suzuki', 4 , 'working' , 600000 , 20 , 800 , 'available') ,
+ ('TS11T1012','Maruti Swift','taxi','Maruti Suzuki', 4 , 'working' , 600000 , 20 , 800 , 'available') ,
+ ('WB13U1221','Maruti Swift','taxi','Maruti Suzuki', 4 , 'working' , 600000 , 20 , 800 , 'available') ,
 
-	begin
+ ('AP06V2525','Maruti Omni','taxi','Maruti Suzuki', 7 , 'working', 450000 , 15 , 700 , 'available') ,
+ ('TS06W2314','Maruti Omni','taxi','Maruti Suzuki', 7 , 'working', 450000 , 15 , 700 , 'available') ,
+ ('WB08X9817','Maruti Omni','taxi','Maruti Suzuki', 7 , 'working', 450000 , 15 , 700 , 'available') ,
 
-	declare price float(5,2);
-	declare dist int;
+ ('AP14Q6554','Mahindra Scorpio','taxi','Mahindra', 6 , 'working',1000000, 25 , 1500 , 'available') ,
+ ('AP15S4112','Mahindra Scorpio','taxi','Mahindra', 6 , 'working',1000000, 25 , 1500 , 'available') ,
+ ('TS01T3134','Mahindra Scorpio','taxi','Mahindra', 6 , 'working',1000000, 25 , 1500 , 'available') ,
 
-	insert into price select carInfo.charge_perkm from carInfo where carInfo.car_name = car_name limit 1 ;
-	insert into dist select distanceInfo.distance where distanceInfo.location1=pickup_addr and distanceInfo.location2=dest_addr ;
+ ('AP10Y5111','Hyundai Verna','taxi','Hyundai', 5 , 'working',1100000,30,1600,'available') ,
+ ('MH11Z1290','Hyundai Verna','taxi','Hyundai', 5 , 'working',1100000,30,1600,'available') ,
+ ('TS12AA4194','Hyundai Verna','taxi','Hyundai', 5 , 'working',1100000,30,1600,'available') ,
 
-	return price*dist ;
+ ('AP04Z1447','Honda City','taxi','Honda', 5 , 'working', 1300000, 35 , 1700 ,'available'),
+ ('TS05AA3171','Honda City','taxi','Honda', 5 , 'working', 1300000, 35 , 1700 ,'available'),
+ ('TS09AB1271','Honda City','taxi','Honda', 5 , 'working', 1300000, 35 , 1700 ,'available');
 
-end //
-delimiter ;
 
+insert into distanceInfo (location1 , location2 ,distance ) values 
+ ('Kukatpally','Hyderabad Airport',40) ,
+ ('Hyderabad Airport','Kukatpally',40) ,
+ ('Charminar','Hyderabad Airport',25) ,
+ ('Hyderabad Airport','Charminar',25) ,
+ ('Charminar','Kukatpally',20),
+ ('Kukatpally','Charminar',20),
 
-insert into carInfo ( car_id ,car_name , car_type , brand ,  car_condition , cost , charge_perkm , rcharge_perday ,availability ) values 
- ('WB11S1001','Maruti Swift','taxi','Maruti Suzuki','working' , 600000 , 20 , 800 , 'available') ,
- ('WB06V2525','Maruti Omni','taxi','Maruti Suzuki','working', 450000 , 15 , 700 , 'available') ,
- ('WB14Q6554','Mahindra Scorpio','taxi','Mahindra','working',1000000, 25 , 1500 , 'available') ,
- ('WB10Y5111','Hyundai Verna','taxi','Hyundai','working',1100000,30,1600,'available') ,
- ('WB04Z1447','Honda City','taxi','Honda','working', 1300000, 35 , 1700 ,'available');
+ ('Cyberabad' , 'Kukatpally', 10) ,
+ ('Kukatpally','Cyberabad' , 10) ,
+ ('Cyberabad','Charminar',15) ,
+ ('Charminar','Cyberabad',15) ,
+ ('Cyberabad','Hyderabad Airport',30),
+ ('Hyderabad Airport','Cyberabad',30),
+
+  ('Golkonda Fort' , 'Kukatpally', 25) ,
+ ('Kukatpally','Golkonda Fort' , 25) ,
+ ('Golkonda Fort','Charminar',15) ,
+ ('Charminar','Golkonda Fort',15) ,
+ ('Golkonda Fort','Hyderabad Airport',30),
+ ('Hyderabad Airport','Golkonda Fort',30),
+  ('Cyberabad' , 'Golkonda Fort', 20) ,
+ ('Golkonda Fort','Cyberabad' , 20) ;
