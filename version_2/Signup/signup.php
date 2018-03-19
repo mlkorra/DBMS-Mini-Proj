@@ -11,7 +11,7 @@
       $mynumber = (int)mysqli_real_escape_string($db,$_POST['Number']);
       $myaddress = mysqli_real_escape_string($db,$_POST['DefaultPickup']);
 
-      if(!filter_var($myuserid, FILTER_VALIDATE_EMAIL)){
+      if(!filter_var($myuserid)){
       	$emailErr="Invalid email address";
       	echo "<div style='text-align:center'> <font color=red size='4pt'>Invalid Email Address </font> </div>";
       }
