@@ -21,6 +21,6 @@
 **Team Members**
   - [Maithreya Samboji]()
   - [Debajyoti Halder](https://github.com/ron-debajyoti)
-  - [Rahul Dev] (https://github.com/mlkorra)
+  - [Rahul Dev](https://github.com/mlkorra)
   
   
