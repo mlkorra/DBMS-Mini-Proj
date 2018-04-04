@@ -18,5 +18,9 @@
   * Update Admin Profile
   
   
+**Team Members**
+  - [Maithreya Samboji]()
+  - [Debajyoti Halder](https://github.com/ron-debajyoti)
+  - [Rahul Dev] (https://github.com/mlkorra)
   
   
